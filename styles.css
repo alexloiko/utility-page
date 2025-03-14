@@ -1,0 +1,33 @@
+.sidebar {
+    min-height: calc(100vh - 60px);
+    border-right: 1px solid #eee;
+}
+
+.nav-link {
+    color: #333;
+    padding: 0.5rem 1rem;
+}
+
+.nav-link:hover {
+    background-color: #f8f8f8;
+}
+
+.nav-link.active {
+    background-color: #f3f3f3;
+}
+
+.card {
+    border: 1px solid #eee;
+    border-radius: 4px;
+    margin-bottom: 1rem;
+}
+
+.card-header {
+    background-color: #f8f8f8;
+    border-bottom: 1px solid #eee;
+    padding: 0.75rem 1rem;
+}
+
+.card-body {
+    padding: 1rem;
+} 
