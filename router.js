@@ -12,6 +12,14 @@ class Router {
         const hash = window.location.hash || `#${this.defaultRoute.path}`;
         const route = this.routes.find(route => hash.startsWith(`#${route.path}`)) || this.defaultRoute;
         
+        // Track page view
+        if (window.gtag) {
+            gtag('event', 'page_view', {
+                page_title: route.path.slice(1),
+                page_path: route.path
+            });
+        }
+
         document.querySelectorAll('.nav-link').forEach(link => {
             link.classList.remove('active');
             if (link.getAttribute('href') === `#${route.path}`) {
