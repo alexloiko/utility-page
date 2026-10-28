@@ -1,0 +1,10 @@
+{
+  "name": "utility-page",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Static developer utility page (time/ObjectId, Base64, JSON, JWT, HMAC, diff, ...)",
+  "scripts": {
+    "test": "node --test",
+    "start": "python3 -m http.server 8000"
+  }
+}

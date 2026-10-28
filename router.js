@@ -1,42 +1,59 @@
+// Minimal hash router. A route is { path, component } or { path, redirect }.
+// A component renders into #content and may return a cleanup function.
 class Router {
     constructor(routes) {
         this.routes = routes;
-        this.defaultRoute = routes[0];
+        this.defaultRoute = routes.find((r) => r.default) || routes[0];
+        this.currentRoute = null;
         this.currentCleanup = null;
-        
+
         window.addEventListener('hashchange', () => this.handleRoute());
         window.addEventListener('load', () => this.handleRoute());
     }
 
+    resolve(hash) {
+        return this.routes.find((r) => hash === `#${r.path}` || hash.startsWith(`#${r.path}/`) || hash.startsWith(`#${r.path}?`))
+            || this.defaultRoute;
+    }
+
     handleRoute() {
-        const hash = window.location.hash || `#${this.defaultRoute.path}`;
-        const route = this.routes.find(route => hash.startsWith(`#${route.path}`)) || this.defaultRoute;
-        
-        // Track page view
-        if (window.gtag) {
-            gtag('event', 'page_view', {
-                page_title: route.path.slice(1),
-                page_path: route.path
-            });
+        if (!window.location.hash) {
+            window.location.replace(`#${this.defaultRoute.path}`);
+            return;
+        }
+        const route = this.resolve(window.location.hash);
+        if (route.redirect) {
+            window.location.replace(`#${route.redirect}`);
+            return;
         }
 
-        document.querySelectorAll('.nav-link').forEach(link => {
-            link.classList.remove('active');
-            if (link.getAttribute('href') === `#${route.path}`) {
-                link.classList.add('active');
-            }
+        if (window.gtag) {
+            gtag('event', 'page_view', { page_title: route.path.slice(1), page_path: route.path });
+        }
+
+        document.querySelectorAll('.nav-link').forEach((link) => {
+            link.classList.toggle('active', link.getAttribute('href') === `#${route.path}`);
         });
 
-        // Clean up previous component if needed
         if (this.currentCleanup) {
             this.currentCleanup();
             this.currentCleanup = null;
         }
 
-        // Run the component and store its cleanup if it returns one
+        this.currentRoute = route;
         const cleanup = route.component();
-        if (typeof cleanup === 'function') {
-            this.currentCleanup = cleanup;
-        }
+        this.currentCleanup = typeof cleanup === 'function' ? cleanup : null;
+        this.focusPrimaryInput();
     }
-} 
+
+    // Desktop only: on touch devices this would pop the keyboard on every navigation.
+    focusPrimaryInput() {
+        if (!window.matchMedia('(pointer: fine)').matches) return;
+        const el = document.querySelector('#content [data-autofocus]');
+        if (el) el.focus({ preventScroll: true });
+    }
+
+    reload() {
+        this.handleRoute();
+    }
+}

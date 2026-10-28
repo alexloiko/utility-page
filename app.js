@@ -1,1044 +1,565 @@
-// Add storage helper functions at the top
-const saveToStorage = (key, value) => {
-    localStorage.setItem(key, value);
+// Tool components. Each component renders into #content, wires its inputs, and may return a
+// cleanup function (used by the router when leaving the page). Pure logic lives in utils.js.
+const U = Utils;
+const $ = (id) => document.getElementById(id);
+
+// ---------- storage ----------
+const saveToStorage = (key, value) => localStorage.setItem(key, value);
+const getFromStorage = (key) => localStorage.getItem(key);
+const clearStorageWithPrefix = (prefix) => {
+    Object.keys(localStorage)
+        .filter((key) => key.startsWith(`${prefix}/`))
+        .forEach((key) => localStorage.removeItem(key));
 };
 
-const getFromStorage = (key) => {
-    return localStorage.getItem(key);
-};
-
-const clearCurrentPageStorage = () => {
-    const hash = window.location.hash.slice(1) || '/millis';
-    const keys = Object.keys(localStorage);
-    keys.forEach(key => {
-        if (key.startsWith(hash)) {
-            localStorage.removeItem(key);
-        }
-    });
-};
-
-// Utility components
-const TimestampComponent = () => {
-    const content = document.getElementById('content');
-    
-    const now = new Date();
-    const currentMillis = now.getTime();
-    
-    // Format local time with timezone offset
-    const localISOTime = new Date(now.getTime() - (now.getTimezoneOffset() * 60000))
-        .toISOString()
-        .slice(0, -1) + 
-        (now.getTimezoneOffset() > 0 ? '-' : '+') +
-        Math.abs(now.getTimezoneOffset() / 60)
-            .toString()
-            .padStart(2, '0') +
-        ':' +
-        (Math.abs(now.getTimezoneOffset() % 60))
-            .toString()
-            .padStart(2, '0');
-    
-    content.innerHTML = `
-        <div class="card">
-            <div class="card-header">
-                Current Time
-            </div>
-            <div class="card-body">
-                <div style="display: grid; grid-template-columns: 120px auto; gap: 10px;">
-                    <span>Unix:</span> <span class="fw-bold">${currentMillis}</span>
-                    <span>UTC:</span> <span class="fw-bold">${now.toISOString()}</span>
-                    <span>Local ISO:</span> <span class="fw-bold">${localISOTime}</span>
-                </div>
-            </div>
-        </div>
-
-        <div class="card">
-            <div class="card-header">
-                Timestamp to Date
-            </div>
-            <div class="card-body">
-                <div class="mb-3">
-                    <input type="number" class="form-control" id="timestamp-input" 
-                           placeholder="Enter Unix timestamp (milliseconds)">
-                </div>
-                <div id="timestamp-result" class="mt-3"></div>
-            </div>
-        </div>
-
-        <div class="card">
-            <div class="card-header">
-                Date to Timestamp
-            </div>
-            <div class="card-body">
-                <div class="mb-3">
-                    <input type="datetime-local" class="form-control" id="datetime-input" step="0.001">
-                </div>
-                <div id="datetime-result" class="mt-3"></div>
-            </div>
-        </div>
-    `;
-
-    // Restore values from storage
-    const timestampInput = document.getElementById('timestamp-input');
-    const datetimeInput = document.getElementById('datetime-input');
-    
-    // First add event listeners
-    timestampInput.addEventListener('input', (e) => {
-        saveToStorage('/millis/timestamp', e.target.value);
-        const timestamp = e.target.value;
-        const date = new Date(Number(timestamp));
-        const result = document.getElementById('timestamp-result');
-        
-        if (isNaN(date.getTime())) {
-            result.innerHTML = '<p class="text-secondary">Invalid timestamp</p>';
-            return;
-        }
-        
-        result.innerHTML = `
-            <div style="display: grid; grid-template-columns: 120px auto; gap: 10px;">
-                <span>UTC:</span> <span class="fw-bold">${date.toISOString()}</span>
-                <span>Local ISO:</span> <span class="fw-bold">${formatWithTimezone(date)}</span>
-            </div>
-        `;
-    });
-
-    datetimeInput.addEventListener('input', (e) => {
-        saveToStorage('/millis/datetime', e.target.value);
-        const datetime = e.target.value;
-        const date = new Date(datetime);
-        const result = document.getElementById('datetime-result');
-        
-        if (isNaN(date.getTime())) {
-            result.innerHTML = '<p class="text-secondary">Invalid date</p>';
-            return;
-        }
-        
-        result.innerHTML = `
-            <div style="display: grid; grid-template-columns: 120px auto; gap: 10px;">
-                <span>Unix:</span> <span class="fw-bold">${date.getTime()}</span>
-            </div>
-        `;
-    });
-
-    // Then restore values and trigger events
-    timestampInput.value = getFromStorage('/millis/timestamp') || '';
-    datetimeInput.value = getFromStorage('/millis/datetime') || '';
-
-    if (timestampInput.value) timestampInput.dispatchEvent(new Event('input'));
-    if (datetimeInput.value) datetimeInput.dispatchEvent(new Event('input'));
-    
-    // Helper function to format date with timezone
-    const formatWithTimezone = (date) => {
-        return new Date(date.getTime() - (date.getTimezoneOffset() * 60000))
-            .toISOString()
-            .slice(0, -1) + 
-            (date.getTimezoneOffset() > 0 ? '-' : '+') +
-            Math.abs(date.getTimezoneOffset() / 60)
-                .toString()
-                .padStart(2, '0') +
-            ':' +
-            (Math.abs(date.getTimezoneOffset() % 60))
-                .toString()
-                .padStart(2, '0');
+// Wires an input: persists on change, restores on load, and runs the handler for both.
+const bindInput = (el, key, handler) => {
+    const run = () => {
+        saveToStorage(key, el.value);
+        handler(el.value);
     };
+    el.addEventListener('input', run);
+    const saved = getFromStorage(key);
+    if (saved !== null && saved !== '') {
+        el.value = saved;
+        handler(el.value);
+    }
 };
 
-const Base64Component = () => {
-    const content = document.getElementById('content');
-    
-    content.innerHTML = `
-        <div class="card">
-            <div class="card-header">
-                Base64 to Text
-            </div>
-            <div class="card-body">
-                <div class="mb-3">
-                    <textarea class="form-control" id="base64-input" 
-                             placeholder="Paste base64 string"></textarea>
-                </div>
-                <div id="base64-result" class="mt-3">
-                    <div style="display: grid; grid-template-columns: 120px auto; gap: 10px;">
-                        <span>Text:</span> <span class="fw-bold"></span>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <div class="card mt-3">
-            <div class="card-header">
-                Text to Base64
-            </div>
-            <div class="card-body">
-                <div class="mb-3">
-                    <textarea class="form-control" id="text-input" 
-                             placeholder="Type or paste text"></textarea>
-                </div>
-                <div id="text-result" class="mt-3">
-                    <div style="display: grid; grid-template-columns: 120px auto; gap: 10px;">
-                        <span>Base64:</span> <span class="fw-bold"></span>
-                    </div>
-                </div>
-            </div>
-        </div>
-    `;
-
-    const base64Input = document.getElementById('base64-input');
-    const textInput = document.getElementById('text-input');
-    
-    // First add event listeners
-    base64Input.addEventListener('input', (e) => {
-        saveToStorage('/base64/base64input', e.target.value);
-        const base64 = e.target.value.trim();
-        const result = document.getElementById('base64-result');
-        
-        try {
-            const text = atob(base64);
-            result.innerHTML = `
-                <div style="display: grid; grid-template-columns: 120px auto; gap: 10px;">
-                    <span>Text:</span> <span class="fw-bold">${text}</span>
-                </div>
-            `;
-        } catch (error) {
-            result.innerHTML = '<p class="text-secondary">Invalid base64 string</p>';
-        }
+const bindCheckbox = (el, key, handler) => {
+    el.addEventListener('change', () => {
+        saveToStorage(key, el.checked ? '1' : '');
+        handler();
     });
-
-    textInput.addEventListener('input', (e) => {
-        saveToStorage('/base64/textinput', e.target.value);
-        const text = e.target.value;
-        const result = document.getElementById('text-result');
-        
-        try {
-            const base64 = btoa(text);
-            result.innerHTML = `
-                <div style="display: grid; grid-template-columns: 120px auto; gap: 10px;">
-                    <span>Base64:</span> <span class="fw-bold">${base64}</span>
-                </div>
-            `;
-        } catch (error) {
-            result.innerHTML = '<p class="text-secondary">Invalid text</p>';
-        }
-    });
-
-    // Then restore values and trigger events
-    base64Input.value = getFromStorage('/base64/base64input') || '';
-    textInput.value = getFromStorage('/base64/textinput') || '';
-
-    if (base64Input.value) base64Input.dispatchEvent(new Event('input'));
-    if (textInput.value) textInput.dispatchEvent(new Event('input'));
+    if (getFromStorage(key) === '1') el.checked = true;
 };
 
-const HmacComponent = () => {
-    const content = document.getElementById('content');
-    
-    content.innerHTML = `
-        <div class="card">
-            <div class="card-header">
-                HMAC SHA512
-            </div>
-            <div class="card-body">
-                <div class="mb-3">
-                    <textarea class="form-control" id="text-input" 
-                             placeholder="Type or paste text"></textarea>
-                </div>
-                <div class="mb-3">
-                    <input type="text" class="form-control" id="secret-input" 
-                           placeholder="Enter secret key">
-                </div>
-                <div id="hmac-result" class="mt-3">
-                    <div style="display: grid; grid-template-columns: 120px auto; gap: 10px;">
-                        <span>Signature:</span> <span class="fw-bold"></span>
-                    </div>
-                </div>
-            </div>
-        </div>
-    `;
+// ---------- markup helpers (all values are escaped here) ----------
+const copyButton = () => '<button type="button" class="copy-btn" data-copy title="Copy"><i class="bi bi-clipboard"></i></button>';
 
-    const calculateHmac = async () => {
-        const text = document.getElementById('text-input').value;
-        const secret = document.getElementById('secret-input').value;
-        
-        // Add storage save
-        saveToStorage('/hmac/text', text);
-        saveToStorage('/hmac/secret', secret);
-        
-        const result = document.getElementById('hmac-result');
-
-        if (!text || !secret) {
-            result.innerHTML = `
-                <div style="display: grid; grid-template-columns: 120px auto; gap: 10px;">
-                    <span>Signature:</span> <span class="fw-bold"></span>
-                </div>
-            `;
-            return;
-        }
-
-        try {
-            const encoder = new TextEncoder();
-            const keyData = encoder.encode(secret);
-            const messageData = encoder.encode(text);
-
-            const cryptoKey = await crypto.subtle.importKey(
-                'raw',
-                keyData,
-                { name: 'HMAC', hash: 'SHA-512' },
-                false,
-                ['sign']
-            );
-
-            const signature = await crypto.subtle.sign(
-                'HMAC',
-                cryptoKey,
-                messageData
-            );
-
-            const base64Signature = btoa(String.fromCharCode(...new Uint8Array(signature)));
-
-            result.innerHTML = `
-                <div style="display: grid; grid-template-columns: 120px auto; gap: 10px;">
-                    <span>Signature:</span> <span class="fw-bold">${base64Signature}</span>
-                </div>
-            `;
-        } catch (error) {
-            result.innerHTML = '<p class="text-secondary">Error calculating HMAC</p>';
-        }
-    };
-
-    const textInput = document.getElementById('text-input');
-    const secretInput = document.getElementById('secret-input');
-    
-    // First add event listeners
-    textInput.addEventListener('input', calculateHmac);
-    secretInput.addEventListener('input', calculateHmac);
-
-    // Then restore values and trigger event
-    textInput.value = getFromStorage('/hmac/text') || '';
-    secretInput.value = getFromStorage('/hmac/secret') || '';
-
-    if (textInput.value && secretInput.value) calculateHmac();
+// opts: { extra: html of more buttons, note: muted text after the buttons (not copied),
+//         copy: false to hide the copy button, cls: extra class for the value }
+const row = (label, value, opts = {}) => {
+    const { extra = '', note = '', copy = true, cls = '' } = opts;
+    const text = value === null || value === undefined ? '' : String(value);
+    return `
+        <span class="result-label">${U.escapeHtml(label)}</span>
+        <span class="result-cell">
+            <code class="result-value ${cls}">${U.escapeHtml(text)}</code>
+            <span class="result-actions">${text && copy ? copyButton() : ''}${extra}</span>
+            ${note ? `<span class="result-note">${U.escapeHtml(note)}</span>` : ''}
+        </span>`;
 };
 
-const JsonComponent = () => {
-    const content = document.getElementById('content');
-    
-    content.innerHTML = `
-        <div class="card">
-            <div class="card-header">
-                Format JSON
-            </div>
-            <div class="card-body">
-                <div class="mb-3">
-                    <textarea class="form-control" id="json-input" rows="5"
-                             placeholder="Paste JSON to format"></textarea>
-                </div>
-                <div id="json-result" class="mt-3">
-                    <div style="display: grid; grid-template-columns: 120px auto; gap: 10px;">
-                        <span>Formatted:</span> <span class="fw-bold"><pre style="margin: 0"></pre></span>
-                    </div>
-                </div>
-            </div>
-        </div>
+const grid = (...rows) => `<div class="result-grid">${rows.join('')}</div>`;
 
-        <div class="card mt-3">
-            <div class="card-header">
-                Unescape JSON String
-            </div>
-            <div class="card-body">
-                <div class="mb-3">
-                    <textarea class="form-control" id="escaped-input" rows="5"
-                             placeholder="Paste escaped JSON string (e.g. with \\\")"></textarea>
-                </div>
-                <div id="escaped-result" class="mt-3">
-                    <div style="display: grid; grid-template-columns: 120px auto; gap: 10px;">
-                        <span>Unescaped:</span> <span class="fw-bold"><pre style="margin: 0"></pre></span>
-                    </div>
-                </div>
-            </div>
-        </div>
-    `;
-
-    const jsonInput = document.getElementById('json-input');
-    const escapedInput = document.getElementById('escaped-input');
-    
-    // First add event listeners
-    jsonInput.addEventListener('input', (e) => {
-        saveToStorage('/json/jsoninput', e.target.value);
-        const text = e.target.value.trim();
-        const result = document.getElementById('json-result').querySelector('pre');
-        
-        try {
-            const formatted = JSON.stringify(JSON.parse(text), null, 2);
-            result.textContent = formatted;
-        } catch (error) {
-            result.textContent = '';
-        }
-    });
-
-    escapedInput.addEventListener('input', (e) => {
-        saveToStorage('/json/escapedinput', e.target.value);
-        const text = e.target.value.trim();
-        const result = document.getElementById('escaped-result').querySelector('pre');
-        
-        try {
-            // First try to parse as JSON
-            let unescaped = JSON.parse(text);
-            
-            // If it's a string, try to parse it as JSON again
-            if (typeof unescaped === 'string') {
-                try {
-                    unescaped = JSON.parse(unescaped);
-                } catch (e) {
-                    // If it fails, keep the string version
-                }
-            }
-            
-            result.textContent = JSON.stringify(unescaped, null, 2);
-        } catch (error) {
-            result.textContent = '';
-        }
-    });
-
-    // Then restore values and trigger events
-    jsonInput.value = getFromStorage('/json/jsoninput') || '';
-    escapedInput.value = getFromStorage('/json/escapedinput') || '';
-
-    if (jsonInput.value) jsonInput.dispatchEvent(new Event('input'));
-    if (escapedInput.value) escapedInput.dispatchEvent(new Event('input'));
+const pre = (text) => {
+    const value = text === null || text === undefined ? '' : String(text);
+    return `<div class="pre-wrap"><pre class="result-pre">${U.escapeHtml(value)}</pre>${value ? copyButton() : ''}</div>`;
 };
 
-const DiffComponent = () => {
-    const content = document.getElementById('content');
-    
-    content.innerHTML = `
-        <div class="card">
-            <div class="card-header">
-                Text Diff
-            </div>
-            <div class="card-body">
-                <div class="row">
-                    <div class="col-md-6">
-                        <textarea class="form-control" id="text1-input" rows="10"
-                                 placeholder="First text"></textarea>
-                    </div>
-                    <div class="col-md-6">
-                        <textarea class="form-control" id="text2-input" rows="10"
-                                 placeholder="Second text"></textarea>
-                    </div>
-                </div>
-                <div id="diff-result" class="mt-3">
-                    <pre style="margin: 0; white-space: pre-wrap;"></pre>
-                </div>
-            </div>
+const message = (text, cls = 'text-secondary') => `<p class="${cls} mb-0">${U.escapeHtml(text)}</p>`;
+
+const card = (title, body, headerExtra = '') => `
+    <div class="card">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <span>${U.escapeHtml(title)}</span>${headerExtra}
         </div>
+        <div class="card-body">${body}</div>
+    </div>`;
+
+// One delegated handler: a copy button copies the text of the element right before it.
+const installCopyHandler = () => {
+    $('content').addEventListener('click', async (e) => {
+        const btn = e.target.closest('button[data-copy]');
+        if (!btn) return;
+        let text = btn.dataset.copyValue;
+        if (text === undefined) {
+            const source = btn.closest('.result-actions')
+                ? btn.closest('.result-actions').previousElementSibling
+                : btn.previousElementSibling;
+            text = source ? source.textContent : '';
+        }
+        const icon = btn.querySelector('i');
+        if (!icon.dataset.original) icon.dataset.original = icon.className;
+        const spacing = icon.className.includes('me-1') ? ' me-1' : '';
+        try {
+            await navigator.clipboard.writeText(text);
+            icon.className = `bi bi-check-lg text-success${spacing}`;
+        } catch (err) {
+            icon.className = `bi bi-x-lg text-danger${spacing}`;
+        }
+        clearTimeout(btn.resetTimer);
+        btn.resetTimer = setTimeout(() => { icon.className = icon.dataset.original; }, 1200);
+    });
+};
+
+// ---------- Time ----------
+const TimeComponent = () => {
+    const content = $('content');
+    let randomSuffix = U.randomHex(16);
+
+    content.innerHTML = `
+        ${card('Now', '<div id="now-grid"></div>', '<button type="button" class="btn btn-sm btn-outline-secondary" id="now-refresh" title="Refresh (R)"><i class="bi bi-arrow-clockwise me-1"></i>Refresh</button>')}
+        ${card('Convert', `
+            <div class="row g-2 mb-2">
+                <div class="col-md-8">
+                    <input type="text" class="form-control font-monospace" data-autofocus id="time-input" spellcheck="false"
+                           placeholder="Unix seconds / millis / micros / nanos, ISO 8601, or ObjectId">
+                </div>
+                <div class="col-md-4">
+                    <input type="datetime-local" class="form-control" id="time-picker" step="1" title="Pick a local date and time">
+                </div>
+            </div>
+            <div id="time-detected" class="form-text mb-3"></div>
+            <div id="time-result"></div>
+        `)}
     `;
 
-    const calculateDiff = () => {
-        const text1 = document.getElementById('text1-input').value;
-        const text2 = document.getElementById('text2-input').value;
-        
-        // Add storage save
-        saveToStorage('/diff/text1', text1);
-        saveToStorage('/diff/text2', text2);
-        
-        const result = document.getElementById('diff-result').querySelector('pre');
-
-        const diff = Diff.createPatch('diff',
-            text1,
-            text2,
-            'Original',
-            'Modified'
+    const renderNow = () => {
+        const t = U.describeTime(Date.now());
+        $('now-grid').innerHTML = grid(
+            row('Unix seconds', t.unixSeconds),
+            row('Unix millis', t.unixMillis),
+            row('UTC', t.utc),
+            row('Local', t.local),
+            row('ObjectId', t.objectId),
         );
+    };
+    renderNow();
+    $('now-refresh').addEventListener('click', renderNow);
+    // "r" refreshes Now when focus is not in a text field
+    const onKey = (e) => {
+        if (e.key !== 'r' || e.metaKey || e.ctrlKey || e.altKey) return;
+        if (e.target.closest('input, textarea, select')) return;
+        renderNow();
+    };
+    document.addEventListener('keydown', onKey);
 
-        // Style the diff output
-        const coloredDiff = diff.split('\n').map(line => {
-            if (line.startsWith('+')) {
-                return `<span style="color: green; background-color: #e6ffe6">${line}</span>`;
-            } else if (line.startsWith('-')) {
-                return `<span style="color: red; background-color: #ffe6e6">${line}</span>`;
-            } else if (line.startsWith('@')) {
-                return `<span style="color: purple">${line}</span>`;
-            }
-            return line;
-        }).join('\n');
-
-        result.innerHTML = coloredDiff;
+    const renderConversion = (raw) => {
+        const parsed = U.parseTimeInput(raw);
+        const detected = $('time-detected');
+        const result = $('time-result');
+        if (!parsed) {
+            detected.textContent = '';
+            result.innerHTML = '';
+            $('time-picker').value = '';
+            return;
+        }
+        if (parsed.error) {
+            detected.textContent = '';
+            result.innerHTML = message(parsed.error);
+            return;
+        }
+        const t = U.describeTime(parsed.ms);
+        detected.textContent = `Read as ${parsed.kind}`;
+        const regen = '<button type="button" class="copy-btn" id="time-regen" title="New random suffix"><i class="bi bi-arrow-repeat"></i></button>';
+        result.innerHTML = grid(
+            row('Unix seconds', t.unixSeconds),
+            row('Unix millis', t.unixMillis),
+            row('UTC', t.utc, { note: t.relative }),
+            row('Local', t.local),
+            t.objectId
+                ? row('ObjectId', t.objectId, { note: 'zero suffix, for range queries' })
+                : row('ObjectId', 'out of range (1970–2106)', { copy: false, cls: 'text-secondary' }),
+            ...(t.objectId ? [row('ObjectId random', U.objectIdFromMs(parsed.ms, randomSuffix), { extra: regen })] : []),
+        );
+        syncPicker(parsed.ms);
     };
 
-    const text1Input = document.getElementById('text1-input');
-    const text2Input = document.getElementById('text2-input');
-    
-    // First add event listeners
-    text1Input.addEventListener('input', calculateDiff);
-    text2Input.addEventListener('input', calculateDiff);
+    // Mirror the parsed value into the date picker (local time, whole seconds). Setting .value
+    // programmatically does not fire 'input', so this cannot loop back into the text field.
+    const syncPicker = (ms) => {
+        const picker = $('time-picker');
+        if (document.activeElement === picker) return;
+        const local = U.formatLocalIso(new Date(ms)).slice(0, 19);
+        picker.value = /^\d{4}-/.test(local) ? local : '';
+    };
 
-    // Then restore values and trigger event
-    text1Input.value = getFromStorage('/diff/text1') || '';
-    text2Input.value = getFromStorage('/diff/text2') || '';
+    const input = $('time-input');
+    bindInput(input, '/time/input', renderConversion);
 
-    if (text1Input.value || text2Input.value) calculateDiff();
+    $('time-picker').addEventListener('input', (e) => {
+        if (!e.target.value) return;
+        input.value = e.target.value;
+        saveToStorage('/time/input', input.value);
+        renderConversion(input.value);
+    });
+
+    $('time-result').addEventListener('click', (e) => {
+        if (!e.target.closest('#time-regen')) return;
+        randomSuffix = U.randomHex(16);
+        renderConversion(input.value);
+    });
+
+    return () => document.removeEventListener('keydown', onKey);
 };
 
-const ObjectIdComponent = () => {
-    const content = document.getElementById('content');
-    
-    content.innerHTML = `
-        <div class="card">
-            <div class="card-header">
-                ObjectId to Timestamp
-            </div>
-            <div class="card-body">
-                <div class="mb-3">
-                    <input type="text" class="form-control" id="objectid-input" 
-                           placeholder="Enter ObjectId">
-                </div>
-                <div id="objectid-result" class="mt-3">
-                    <div style="display: grid; grid-template-columns: 120px auto; gap: 10px;">
-                        <span>Timestamp:</span> <span class="fw-bold"></span>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <div class="card mt-3">
-            <div class="card-header">
-                Timestamp to ObjectId
-            </div>
-            <div class="card-body">
-                <div class="mb-3">
-                    <input type="number" class="form-control" id="timestamp-input" 
-                           placeholder="Enter Unix timestamp (milliseconds)">
-                </div>
-                <div id="timestamp-result" class="mt-3">
-                    <div style="display: grid; grid-template-columns: 120px auto; gap: 10px;">
-                        <span>ObjectId:</span> <span class="fw-bold"></span>
-                    </div>
-                </div>
-            </div>
-        </div>
+// ---------- Base64 ----------
+const Base64Component = () => {
+    $('content').innerHTML = `
+        ${card('Base64 to Text', `
+            <textarea class="form-control font-monospace mb-3" data-autofocus id="base64-input" rows="4" spellcheck="false"
+                      placeholder="Paste base64 or base64url (padding optional)"></textarea>
+            <div id="base64-result"></div>
+        `)}
+        ${card('Text to Base64', `
+            <textarea class="form-control mb-3" id="text-input" rows="4"
+                      placeholder="Type or paste text (UTF-8)"></textarea>
+            <div id="text-result"></div>
+        `)}
     `;
 
-    const objectIdInput = document.getElementById('objectid-input');
-    const timestampInput = document.getElementById('timestamp-input');
-
-    // First add event listeners
-    objectIdInput.addEventListener('input', (e) => {
-        saveToStorage('/objectid/objectid', e.target.value);
-        const objectId = e.target.value.trim();
-        const result = document.getElementById('objectid-result');
-
-        if (!/^[0-9a-fA-F]{24}$/.test(objectId)) {
-            result.innerHTML = '<p class="text-secondary">Invalid ObjectId</p>';
-            return;
-        }
-
+    bindInput($('base64-input'), '/base64/base64input', (value) => {
+        const result = $('base64-result');
+        if (!value.trim()) { result.innerHTML = ''; return; }
         try {
-            // Extract timestamp from ObjectId (first 4 bytes)
-            const timestamp = parseInt(objectId.substring(0, 8), 16) * 1000;
-            const date = new Date(timestamp);
-
-            result.innerHTML = `
-                <div style="display: grid; grid-template-columns: 120px auto; gap: 10px;">
-                    <span>Unix:</span> <span class="fw-bold">${timestamp}</span>
-                    <span>UTC:</span> <span class="fw-bold">${date.toISOString()}</span>
-                </div>
-            `;
-        } catch (error) {
-            result.innerHTML = '<p class="text-secondary">Error processing ObjectId</p>';
+            result.innerHTML = grid(row('Text', U.base64ToUtf8(value)));
+        } catch (err) {
+            result.innerHTML = message(`Invalid base64: ${err.message}`);
         }
     });
 
-    timestampInput.addEventListener('input', (e) => {
-        saveToStorage('/objectid/timestamp', e.target.value);
-        const timestamp = parseInt(e.target.value);
-        const result = document.getElementById('timestamp-result');
-
-        if (isNaN(timestamp)) {
-            result.innerHTML = '<p class="text-secondary">Invalid timestamp</p>';
-            return;
-        }
-
-        try {
-            // Convert timestamp to hex and pad to 8 characters
-            const timestampHex = Math.floor(timestamp / 1000)
-                .toString(16)
-                .padStart(8, '0');
-            
-            // Generate random hex for remaining bytes (16 characters)
-            const randomHex = Array.from(
-                { length: 16 }, 
-                () => Math.floor(Math.random() * 16).toString(16)
-            ).join('');
-
-            const objectId = timestampHex + randomHex;
-
-            result.innerHTML = `
-                <div style="display: grid; grid-template-columns: 120px auto; gap: 10px;">
-                    <span>ObjectId:</span> <span class="fw-bold">${objectId}</span>
-                </div>
-            `;
-        } catch (error) {
-            result.innerHTML = '<p class="text-secondary">Error generating ObjectId</p>';
-        }
+    bindInput($('text-input'), '/base64/textinput', (value) => {
+        const result = $('text-result');
+        if (!value) { result.innerHTML = ''; return; }
+        const b64 = U.utf8ToBase64(value);
+        result.innerHTML = grid(row('Base64', b64), row('Base64url', U.toBase64Url(b64)));
     });
-
-    // Then restore values and trigger events
-    objectIdInput.value = getFromStorage('/objectid/objectid') || '';
-    timestampInput.value = getFromStorage('/objectid/timestamp') || '';
-
-    if (objectIdInput.value) objectIdInput.dispatchEvent(new Event('input'));
-    if (timestampInput.value) timestampInput.dispatchEvent(new Event('input'));
 };
 
+// ---------- HMAC ----------
+const HmacComponent = () => {
+    $('content').innerHTML = card('HMAC', `
+        <textarea class="form-control mb-3" data-autofocus id="text-input" rows="4" placeholder="Message"></textarea>
+        <div class="row g-2 mb-3">
+            <div class="col-md-8">
+                <input type="text" class="form-control" id="secret-input" placeholder="Secret key" autocomplete="off">
+            </div>
+            <div class="col-md-4">
+                <select class="form-select" id="hash-select">
+                    <option value="SHA-256">SHA-256</option>
+                    <option value="SHA-384">SHA-384</option>
+                    <option value="SHA-512">SHA-512</option>
+                    <option value="SHA-1">SHA-1</option>
+                </select>
+            </div>
+        </div>
+        <div id="hmac-result"></div>
+    `);
+
+    const textInput = $('text-input');
+    const secretInput = $('secret-input');
+    const hashSelect = $('hash-select');
+
+    let runId = 0;
+    const calculate = async () => {
+        const id = ++runId;
+        const result = $('hmac-result');
+        if (!textInput.value || !secretInput.value) { result.innerHTML = ''; return; }
+        try {
+            const r = await U.hmac(textInput.value, secretInput.value, hashSelect.value);
+            if (id !== runId) return; // a newer keystroke superseded this one
+            result.innerHTML = grid(row('Hex', r.hex), row('Base64', r.base64), row('Base64url', r.base64url));
+        } catch (err) {
+            result.innerHTML = message('Error calculating HMAC');
+        }
+    };
+
+    bindInput(textInput, '/hmac/text', calculate);
+    bindInput(secretInput, '/hmac/secret', calculate);
+    bindInput(hashSelect, '/hmac/hash', calculate);
+};
+
+// ---------- JSON ----------
+const JsonComponent = () => {
+    $('content').innerHTML = `
+        ${card('Format JSON', `
+            <textarea class="form-control font-monospace mb-2" data-autofocus id="json-input" rows="6" spellcheck="false"
+                      placeholder="Paste JSON"></textarea>
+            <div class="form-check mb-3">
+                <input class="form-check-input" type="checkbox" id="json-sort">
+                <label class="form-check-label" for="json-sort">Sort keys</label>
+            </div>
+            <div id="json-result"></div>
+        `)}
+        ${card('Unescape JSON string', `
+            <textarea class="form-control font-monospace mb-3" id="escaped-input" rows="4" spellcheck="false"
+                      placeholder='Paste an escaped string, e.g. {\\"a\\":1} or "{\\"a\\":1}"'></textarea>
+            <div id="escaped-result"></div>
+        `)}
+        ${card('Escape to JSON string', `
+            <textarea class="form-control font-monospace mb-3" id="raw-input" rows="4" spellcheck="false"
+                      placeholder="Text to embed as a JSON string value"></textarea>
+            <div id="raw-result"></div>
+        `)}
+    `;
+
+    const jsonInput = $('json-input');
+    const sortCheckbox = $('json-sort');
+
+    const renderJson = () => {
+        const result = $('json-result');
+        const text = jsonInput.value.trim();
+        if (!text) { result.innerHTML = ''; return; }
+        const parsed = U.parseJson(text);
+        if (parsed.error) { result.innerHTML = message(parsed.error, 'text-danger'); return; }
+        const value = sortCheckbox.checked ? U.sortKeysDeep(parsed.value) : parsed.value;
+        result.innerHTML = `
+            ${pre(JSON.stringify(value, null, 2))}
+            <div class="mt-3">${grid(row('Minified', JSON.stringify(value)))}</div>`;
+    };
+
+    bindCheckbox(sortCheckbox, '/json/sort', renderJson);
+    bindInput(jsonInput, '/json/jsoninput', renderJson);
+
+    bindInput($('escaped-input'), '/json/escapedinput', (value) => {
+        const result = $('escaped-result');
+        if (!value.trim()) { result.innerHTML = ''; return; }
+        const r = U.unescapeJsonString(value);
+        if (r.error) { result.innerHTML = message(r.error, 'text-danger'); return; }
+        result.innerHTML = pre(typeof r.value === 'string' ? r.value : JSON.stringify(r.value, null, 2));
+    });
+
+    bindInput($('raw-input'), '/json/rawinput', (value) => {
+        $('raw-result').innerHTML = value ? grid(row('Escaped', JSON.stringify(value))) : '';
+    });
+};
+
+// ---------- Diff ----------
+const DiffComponent = () => {
+    $('content').innerHTML = card('Text Diff', `
+        <div class="row g-2">
+            <div class="col-md-6">
+                <textarea class="form-control font-monospace" data-autofocus id="text1-input" rows="10" spellcheck="false" placeholder="Original"></textarea>
+            </div>
+            <div class="col-md-6">
+                <textarea class="form-control font-monospace" id="text2-input" rows="10" spellcheck="false" placeholder="Modified"></textarea>
+            </div>
+        </div>
+        <div id="diff-result" class="mt-3"></div>
+    `);
+
+    const text1 = $('text1-input');
+    const text2 = $('text2-input');
+
+    const render = () => {
+        const result = $('diff-result');
+        if (!text1.value && !text2.value) { result.innerHTML = ''; return; }
+        const withNewline = (t) => (t.endsWith('\n') ? t : `${t}\n`);
+        const patch = U.stripPatchHeader(Diff.createPatch('diff', withNewline(text1.value), withNewline(text2.value), 'Original', 'Modified'));
+        if (!patch) { result.innerHTML = message('No differences'); return; }
+        const html = patch.split('\n').map((line) => {
+            const safe = U.escapeHtml(line);
+            if (line.startsWith('+')) return `<span class="diff-add">${safe}</span>`;
+            if (line.startsWith('-')) return `<span class="diff-del">${safe}</span>`;
+            if (line.startsWith('@')) return `<span class="diff-hunk">${safe}</span>`;
+            return safe;
+        }).join('\n');
+        result.innerHTML = `<pre class="result-pre">${html}</pre>`;
+    };
+
+    bindInput(text1, '/diff/text1', render);
+    bindInput(text2, '/diff/text2', render);
+};
+
+// ---------- URL ----------
 const UrlComponent = () => {
-    const content = document.getElementById('content');
-    
-    content.innerHTML = `
-        <div class="card">
-            <div class="card-header">
-                URL Encode
-            </div>
-            <div class="card-body">
-                <div class="mb-3">
-                    <textarea class="form-control" id="text-input" rows="5"
-                             placeholder="Type or paste text to encode"></textarea>
-                </div>
-                <div id="encode-result" class="mt-3">
-                    <div style="display: grid; grid-template-columns: 120px auto; gap: 10px;">
-                        <span>Encoded:</span> <span class="fw-bold"></span>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <div class="card mt-3">
-            <div class="card-header">
-                URL Decode
-            </div>
-            <div class="card-body">
-                <div class="mb-3">
-                    <textarea class="form-control" id="encoded-input" rows="5"
-                             placeholder="Paste URL encoded text"></textarea>
-                </div>
-                <div id="decode-result" class="mt-3">
-                    <div style="display: grid; grid-template-columns: 120px auto; gap: 10px;">
-                        <span>Decoded:</span> <span class="fw-bold"></span>
-                    </div>
-                </div>
-            </div>
-        </div>
+    $('content').innerHTML = `
+        ${card('URL Encode', `
+            <textarea class="form-control mb-3" data-autofocus id="text-input" rows="4" placeholder="Text or URL to encode"></textarea>
+            <div id="encode-result"></div>
+        `)}
+        ${card('URL Decode', `
+            <textarea class="form-control font-monospace mb-3" id="encoded-input" rows="4" spellcheck="false" placeholder="Percent-encoded text"></textarea>
+            <div id="decode-result"></div>
+        `)}
     `;
 
-    const textInput = document.getElementById('text-input');
-    const encodedInput = document.getElementById('encoded-input');
-
-    // First add event listeners
-    textInput.addEventListener('input', (e) => {
-        saveToStorage('/url/text', e.target.value);
-        const text = e.target.value;
-        const result = document.getElementById('encode-result');
-        
-        try {
-            const encoded = encodeURIComponent(text);
-            result.innerHTML = `
-                <div style="display: grid; grid-template-columns: 120px auto; gap: 10px;">
-                    <span>Encoded:</span> <span class="fw-bold">${encoded}</span>
-                </div>
-            `;
-        } catch (error) {
-            result.innerHTML = '<p class="text-secondary">Error encoding text</p>';
-        }
+    bindInput($('text-input'), '/url/text', (value) => {
+        $('encode-result').innerHTML = value ? grid(
+            row('Component', encodeURIComponent(value)),
+            row('Full URI', encodeURI(value)),
+        ) : '';
     });
 
-    encodedInput.addEventListener('input', (e) => {
-        saveToStorage('/url/encoded', e.target.value);
-        const encoded = e.target.value;
-        const result = document.getElementById('decode-result');
-        
+    bindInput($('encoded-input'), '/url/encoded', (value) => {
+        const result = $('decode-result');
+        if (!value) { result.innerHTML = ''; return; }
         try {
-            const decoded = decodeURIComponent(encoded);
-            result.innerHTML = `
-                <div style="display: grid; grid-template-columns: 120px auto; gap: 10px;">
-                    <span>Decoded:</span> <span class="fw-bold">${decoded}</span>
-                </div>
-            `;
-        } catch (error) {
-            result.innerHTML = '<p class="text-secondary">Invalid URL encoded text</p>';
+            result.innerHTML = grid(row('Decoded', decodeURIComponent(value)));
+        } catch (err) {
+            result.innerHTML = message('Invalid percent-encoding');
         }
     });
-
-    // Then restore values and trigger events
-    textInput.value = getFromStorage('/url/text') || '';
-    encodedInput.value = getFromStorage('/url/encoded') || '';
-
-    if (textInput.value) textInput.dispatchEvent(new Event('input'));
-    if (encodedInput.value) encodedInput.dispatchEvent(new Event('input'));
 };
 
+// ---------- Text ----------
 const TextComponent = () => {
-    const content = document.getElementById('content');
-    
-    content.innerHTML = `
-        <div class="card">
-            <div class="card-header">
-                Text Statistics
-            </div>
-            <div class="card-body">
-                <div class="mb-3">
-                    <textarea class="form-control" id="text-input" rows="10"
-                             placeholder="Type or paste text to analyze"></textarea>
-                </div>
-                <div id="text-result" class="mt-3">
-                    <div style="display: grid; grid-template-columns: 120px auto; gap: 10px;">
-                        <span>Bytes:</span> <span class="fw-bold">0</span>
-                        <span>Symbols:</span> <span class="fw-bold">0</span>
-                        <span>Words:</span> <span class="fw-bold">0</span>
-                        <span>Lines:</span> <span class="fw-bold">0</span>
-                    </div>
-                </div>
-            </div>
+    $('content').innerHTML = card('Text Statistics', `
+        <textarea class="form-control mb-3" data-autofocus id="text-input" rows="10" placeholder="Type or paste text"></textarea>
+        <div id="text-result"></div>
+    `);
+
+    const render = (value) => {
+        const s = U.textStats(value);
+        $('text-result').innerHTML = grid(
+            row('Bytes (UTF-8)', s.bytes),
+            row('Characters', s.characters),
+            row('Words', s.words),
+            row('Lines', s.lines),
+        );
+    };
+    render('');
+    bindInput($('text-input'), '/text/input', render);
+};
+
+// ---------- UUID ----------
+const UuidComponent = () => {
+    $('content').innerHTML = card('UUID v4', `
+        <div class="d-flex gap-2 align-items-center mb-3">
+            <label for="uuid-count" class="form-label mb-0">Count</label>
+            <input type="number" class="form-control" id="uuid-count" value="1" min="1" max="100" style="width: 6rem">
+            <button type="button" class="btn btn-outline-secondary" id="uuid-generate">
+                <i class="bi bi-arrow-repeat me-1"></i>Generate
+            </button>
+            <button type="button" class="btn btn-outline-secondary" id="uuid-copy-all" data-copy title="Copy all, one per line">
+                <i class="bi bi-clipboard me-1"></i>Copy all
+            </button>
         </div>
-    `;
+        <div id="uuid-result"></div>
+    `);
 
-    const textInput = document.getElementById('text-input');
+    const countInput = $('uuid-count');
+    const generate = () => {
+        const count = Math.min(100, Math.max(1, parseInt(countInput.value, 10) || 1));
+        countInput.value = count;
+        saveToStorage('/uuid/count', count);
+        const uuids = Array.from({ length: count }, U.uuidV4);
+        $('uuid-result').innerHTML = grid(...uuids.map((id, i) => row(`#${i + 1}`, id)));
+        const copyAll = $('uuid-copy-all');
+        copyAll.dataset.copyValue = uuids.join('\n');
+        copyAll.style.display = count > 1 ? '' : 'none';
+    };
 
-    // First add event listener
-    textInput.addEventListener('input', (e) => {
-        saveToStorage('/text/input', e.target.value);
-        const text = e.target.value;
-        const result = document.getElementById('text-result');
-        
-        // Calculate statistics
-        const bytes = new TextEncoder().encode(text).length;
-        const symbols = text.length;
-        const words = text.trim() ? text.trim().split(/\s+/).length : 0;
-        const lines = text.trim() ? text.trim().split(/\n/).length : 0;
+    countInput.value = getFromStorage('/uuid/count') || '1';
+    $('uuid-generate').addEventListener('click', generate);
+    countInput.addEventListener('change', generate);
+    generate();
+};
+
+// ---------- Calculator ----------
+const CalculatorComponent = () => {
+    $('content').innerHTML = card('Calculator', `
+        <input type="text" class="form-control font-monospace mb-1" data-autofocus id="calc-input" spellcheck="false"
+               placeholder="e.g. 2^64 - 1, 0xff * 3, Math.sqrt(2)">
+        <div class="form-text mb-3">Integer expressions are exact (BigInt). Use / to get a float.</div>
+        <div id="calc-result"></div>
+    `);
+
+    bindInput($('calc-input'), '/calc/input', (value) => {
+        const result = $('calc-result');
+        if (!value.trim()) { result.innerHTML = ''; return; }
+        try {
+            const r = U.evaluate(value);
+            const bases = U.integerBases(r.value);
+            result.innerHTML = grid(
+                row(r.exact ? 'Result' : 'Result (float)', r.value.toString()),
+                ...(bases ? [row('Hex', bases.hex), row('Binary', bases.binary), row('Octal', bases.octal)] : []),
+            );
+        } catch (err) {
+            result.innerHTML = message(`Invalid expression: ${err.message}`);
+        }
+    });
+};
+
+// ---------- JWT ----------
+const JwtComponent = () => {
+    $('content').innerHTML = card('JWT', `
+        <textarea class="form-control font-monospace mb-3" data-autofocus id="jwt-input" rows="3" spellcheck="false" placeholder="Paste JWT"></textarea>
+        <div id="jwt-result"></div>
+        <div id="jwt-verify" class="mt-3" style="display: none;">
+            <h6>Verify HMAC signature</h6>
+            <input type="text" class="form-control mb-2" id="secret-input" placeholder="Secret key" autocomplete="off">
+            <div id="verify-result"></div>
+        </div>
+    `);
+
+    const jwtInput = $('jwt-input');
+    const secretInput = $('secret-input');
+    const verifySection = $('jwt-verify');
+
+    const claimRow = (label, seconds) => (typeof seconds === 'number'
+        ? row(label, new Date(seconds * 1000).toISOString(), { note: U.formatRelative(seconds * 1000) })
+        : row(label, 'not set', { copy: false, cls: 'text-secondary fw-normal' }));
+
+    const renderVerify = async () => {
+        const result = $('verify-result');
+        if (!secretInput.value || !jwtInput.value.trim()) { result.innerHTML = ''; return; }
+        const r = await U.verifyJwtHmac(jwtInput.value, secretInput.value);
+        if (r.error) { result.innerHTML = message(r.error); return; }
+        result.innerHTML = message(r.valid ? 'Signature valid' : 'Signature does not match', r.valid ? 'text-success fw-bold' : 'text-danger fw-bold');
+    };
+
+    const render = (value) => {
+        const result = $('jwt-result');
+        const token = value.trim();
+        if (!token) { result.innerHTML = ''; verifySection.style.display = 'none'; return; }
+        const d = U.decodeJwt(token);
+        if (d.error) { result.innerHTML = message(d.error); verifySection.style.display = 'none'; return; }
+
+        const now = Date.now() / 1000;
+        const p = d.payload || {};
+        let status = 'no expiration claim';
+        let statusCls = 'text-secondary';
+        if (typeof p.exp === 'number') {
+            if (p.exp < now) { status = 'expired'; statusCls = 'text-danger'; } else { status = 'not expired'; statusCls = 'text-success'; }
+        }
+        if (typeof p.nbf === 'number' && p.nbf > now) { status = 'not yet valid (nbf in the future)'; statusCls = 'text-warning'; }
 
         result.innerHTML = `
-            <div style="display: grid; grid-template-columns: 120px auto; gap: 10px;">
-                <span>Bytes:</span> <span class="fw-bold">${bytes}</span>
-                <span>Symbols:</span> <span class="fw-bold">${symbols}</span>
-                <span>Words:</span> <span class="fw-bold">${words}</span>
-                <span>Lines:</span> <span class="fw-bold">${lines}</span>
-            </div>
-        `;
-    });
+            <h6>Header</h6>${pre(JSON.stringify(d.header, null, 2))}
+            <h6 class="mt-3">Payload</h6>${pre(JSON.stringify(d.payload, null, 2))}
+            <h6 class="mt-3">Claims</h6>
+            ${grid(
+                row('Status', status, { copy: false, cls: statusCls }),
+                row('Algorithm', (d.header && d.header.alg) || 'missing'),
+                claimRow('Issued at', p.iat),
+                claimRow('Not before', p.nbf),
+                claimRow('Expires', p.exp),
+            )}`;
 
-    // Then restore value and trigger event
-    textInput.value = getFromStorage('/text/input') || '';
-    if (textInput.value) textInput.dispatchEvent(new Event('input'));
-};
-
-const UuidComponent = () => {
-    const content = document.getElementById('content');
-    
-    const generateUuid = () => {
-        // Get 16 random bytes
-        const randomBytes = new Uint8Array(16);
-        crypto.getRandomValues(randomBytes);
-        
-        // Set version (4) and variant (RFC4122) bits
-        randomBytes[6] = (randomBytes[6] & 0x0f) | 0x40;  // version 4
-        randomBytes[8] = (randomBytes[8] & 0x3f) | 0x80;  // variant RFC4122
-        
-        // Convert to hex string with proper formatting
-        const hex = Array.from(randomBytes)
-            .map(b => b.toString(16).padStart(2, '0'))
-            .join('');
-            
-        return `${hex.slice(0,8)}-${hex.slice(8,12)}-${hex.slice(12,16)}-${hex.slice(16,20)}-${hex.slice(20)}`;
-    };
-    
-    content.innerHTML = `
-        <div class="card">
-            <div class="card-header">
-                <div class="d-flex justify-content-between align-items-center">
-                    <span>Generate UUID v4</span>
-                    <button class="btn btn-outline-secondary btn-sm" onclick="location.reload()">
-                        Generate New
-                    </button>
-                </div>
-            </div>
-            <div class="card-body">
-                <div style="display: grid; grid-template-columns: 120px auto; gap: 10px;">
-                    <span>UUID:</span> <span class="fw-bold">${generateUuid()}</span>
-                </div>
-            </div>
-        </div>
-    `;
-};
-
-const CalculatorComponent = () => {
-    const content = document.getElementById('content');
-    
-    content.innerHTML = `
-        <div class="card">
-            <div class="card-header">
-                Calculator
-            </div>
-            <div class="card-body">
-                <div class="mb-3">
-                    <input type="text" class="form-control" id="calc-input">
-                </div>
-                <div id="calc-result" class="mt-3">
-                    <div style="display: grid; grid-template-columns: 120px auto; gap: 10px;">
-                        <span>Result:</span> <span class="fw-bold"></span>
-                    </div>
-                </div>
-            </div>
-        </div>
-    `;
-
-    const calcInput = document.getElementById('calc-input');
-
-    // First add event listener
-    calcInput.addEventListener('input', (e) => {
-        saveToStorage('/calc/input', e.target.value);
-        const expression = e.target.value.trim();
-        const result = document.getElementById('calc-result');
-        
-        if (!expression) {
-            result.innerHTML = `
-                <div style="display: grid; grid-template-columns: 120px auto; gap: 10px;">
-                    <span>Result:</span> <span class="fw-bold"></span>
-                </div>
-            `;
-            return;
-        }
-
-        try {
-            // Replace ^ with ** for exponentiation
-            const sanitizedExpr = expression.replace(/\^/g, '**');
-            
-            // Evaluate using Function to support big numbers
-            const evalResult = new Function('return ' + sanitizedExpr)();
-            
-            result.innerHTML = `
-                <div style="display: grid; grid-template-columns: 120px auto; gap: 10px;">
-                    <span>Result:</span> <span class="fw-bold">${evalResult}</span>
-                </div>
-            `;
-        } catch (error) {
-            result.innerHTML = '<p class="text-secondary">Invalid expression</p>';
-        }
-    });
-
-    // Then restore value and trigger event
-    calcInput.value = getFromStorage('/calc/input') || '';
-    if (calcInput.value) calcInput.dispatchEvent(new Event('input'));
-};
-
-const JwtComponent = () => {
-    const content = document.getElementById('content');
-    
-    content.innerHTML = `
-        <div class="card">
-            <div class="card-header">
-                JWT Token Analysis
-            </div>
-            <div class="card-body">
-                <div class="mb-3">
-                    <textarea class="form-control" id="jwt-input" rows="3"
-                             placeholder="Paste JWT token"></textarea>
-                </div>
-                <div id="jwt-result" class="mt-3">
-                    <div class="mb-4">
-                        <h6>Header</h6>
-                        <pre id="jwt-header" class="bg-light p-2 rounded" style="margin: 0"></pre>
-                    </div>
-                    <div class="mb-4">
-                        <h6>Payload</h6>
-                        <pre id="jwt-payload" class="bg-light p-2 rounded" style="margin: 0"></pre>
-                    </div>
-                    <div id="jwt-signature" class="mb-4">
-                        <h6>Signature Info</h6>
-                        <div style="display: grid; grid-template-columns: 120px auto; gap: 10px;">
-                            <span>Algorithm:</span> <span class="fw-bold"></span>
-                            <span>Expiration:</span> <span class="fw-bold"></span>
-                            <span>Valid:</span> <span class="fw-bold"></span>
-                        </div>
-                    </div>
-                    <div id="jwt-verify" class="mb-4" style="display: none;">
-                        <h6>Verify Signature</h6>
-                        <div class="mb-3">
-                            <input type="text" class="form-control" id="secret-input" 
-                                   placeholder="Enter secret key">
-                        </div>
-                        <div id="verify-result">
-                            <div style="display: grid; grid-template-columns: 120px auto; gap: 10px;">
-                                <span>Status:</span> <span class="fw-bold"></span>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-    `;
-
-    const jwtInput = document.getElementById('jwt-input');
-
-    // First add event listener
-    jwtInput.addEventListener('input', async (e) => {
-        saveToStorage('/jwt/token', e.target.value);
-        const token = e.target.value.trim();
-        const headerPre = document.getElementById('jwt-header');
-        const payloadPre = document.getElementById('jwt-payload');
-        const signatureInfo = document.getElementById('jwt-signature');
-
-        if (!token) {
-            headerPre.textContent = '';
-            payloadPre.textContent = '';
-            signatureInfo.innerHTML = `
-                <h6>Signature Info</h6>
-                <div style="display: grid; grid-template-columns: 120px auto; gap: 10px;">
-                    <span>Algorithm:</span> <span class="fw-bold"></span>
-                    <span>Expiration:</span> <span class="fw-bold"></span>
-                    <span>Valid:</span> <span class="fw-bold"></span>
-                </div>
-            `;
-            return;
-        }
-
-        try {
-            const [headerB64, payloadB64] = token.split('.');
-            
-            // Decode header
-            const header = JSON.parse(atob(headerB64));
-            headerPre.textContent = JSON.stringify(header, null, 2);
-            
-            // Show verification section only for HMAC algorithms
-            const verifySection = document.getElementById('jwt-verify');
-            verifySection.style.display = header.alg.startsWith('HS') ? 'block' : 'none';
-            
-            // Decode payload
-            const payload = JSON.parse(atob(payloadB64));
-            payloadPre.textContent = JSON.stringify(payload, null, 2);
-            
-            // Check expiration and show info
-            const now = Math.floor(Date.now() / 1000);
-            const isExpired = payload.exp && payload.exp < now;
-            const expirationDate = payload.exp ? new Date(payload.exp * 1000).toISOString() : 'Not set';
-            
-            signatureInfo.innerHTML = `
-                <h6>Signature Info</h6>
-                <div style="display: grid; grid-template-columns: 120px auto; gap: 10px;">
-                    <span>Algorithm:</span> <span class="fw-bold">${header.alg || 'Unknown'}</span>
-                    <span>Expiration:</span> <span class="fw-bold">${expirationDate}</span>
-                    <span>Valid:</span> <span class="fw-bold ${isExpired ? 'text-danger' : 'text-success'}">
-                        ${isExpired ? 'Expired' : (payload.exp ? 'Valid' : 'No expiration')}
-                    </span>
-                </div>
-            `;
-        } catch (error) {
-            headerPre.textContent = '';
-            payloadPre.textContent = '';
-            signatureInfo.innerHTML = `
-                <h6>Signature Info</h6>
-                <p class="text-secondary">Invalid JWT token</p>
-            `;
-        }
-    });
-
-    // Add secret input handler
-    const secretInput = document.getElementById('secret-input');
-    secretInput.addEventListener('input', async (e) => {
-        const secret = e.target.value;
-        const token = jwtInput.value.trim();
-        const verifyResult = document.getElementById('verify-result');
-        
-        if (!secret || !token) {
-            verifyResult.innerHTML = `
-                <div style="display: grid; grid-template-columns: 120px auto; gap: 10px;">
-                    <span>Status:</span> <span class="fw-bold"></span>
-                </div>
-            `;
-            return;
-        }
-
-        const isValid = await verifyJwtSignature(token, secret);
-        verifyResult.innerHTML = `
-            <div style="display: grid; grid-template-columns: 120px auto; gap: 10px;">
-                <span>Status:</span> <span class="fw-bold ${isValid ? 'text-success' : 'text-danger'}">
-                    ${isValid ? 'Valid signature' : 'Invalid signature'}
-                </span>
-            </div>
-        `;
-    });
-
-    // Add verification function
-    const verifyJwtSignature = async (token, secret) => {
-        try {
-            const [headerB64, payloadB64, signatureB64] = token.split('.');
-            const header = JSON.parse(atob(headerB64));
-            
-            // Only support HMAC algorithms
-            if (!header.alg.startsWith('HS')) {
-                return false;
-            }
-
-            const hashAlg = {
-                'HS256': 'SHA-256',
-                'HS384': 'SHA-384',
-                'HS512': 'SHA-512'
-            }[header.alg];
-
-            const encoder = new TextEncoder();
-            const keyData = encoder.encode(secret);
-            const messageData = encoder.encode(headerB64 + '.' + payloadB64);
-
-            const key = await crypto.subtle.importKey(
-                'raw',
-                keyData,
-                { name: 'HMAC', hash: hashAlg },
-                false,
-                ['sign']
-            );
-
-            const signature = await crypto.subtle.sign(
-                'HMAC',
-                key,
-                messageData
-            );
-
-            // Convert signature to base64url
-            const calculatedSignature = btoa(String.fromCharCode(...new Uint8Array(signature)))
-                .replace(/=/g, '')
-                .replace(/\+/g, '-')
-                .replace(/\//g, '_');
-
-            return calculatedSignature === signatureB64;
-        } catch (error) {
-            return false;
-        }
+        const alg = d.header && d.header.alg;
+        verifySection.style.display = U.HMAC_HASHES[alg] ? 'block' : 'none';
+        renderVerify();
     };
 
-    // Then restore value and trigger event
-    jwtInput.value = getFromStorage('/jwt/token') || '';
-    if (jwtInput.value) jwtInput.dispatchEvent(new Event('input'));
+    bindInput(jwtInput, '/jwt/token', render);
+    secretInput.addEventListener('input', renderVerify);
 };
 
-// Routes configuration
+// ---------- routes ----------
 const routes = [
+    { path: '/time', component: TimeComponent, default: true },
     { path: '/base64', component: Base64Component },
     { path: '/calc', component: CalculatorComponent },
     { path: '/diff', component: DiffComponent },
     { path: '/hmac', component: HmacComponent },
     { path: '/json', component: JsonComponent },
     { path: '/jwt', component: JwtComponent },
-    { path: '/millis', component: TimestampComponent },
-    { path: '/objectid', component: ObjectIdComponent },
     { path: '/text', component: TextComponent },
     { path: '/url', component: UrlComponent },
-    { path: '/uuid', component: UuidComponent }
+    { path: '/uuid', component: UuidComponent },
+    // old bookmarks
+    { path: '/millis', redirect: '/time' },
+    { path: '/objectid', redirect: '/time' },
 ];
 
-// Initialize router
-new Router(routes);
+installCopyHandler();
+const router = new Router(routes);
 
-// Add clean button handler
-document.getElementById('clean-button').addEventListener('click', () => {
-    clearCurrentPageStorage();
-    // Reload current component
-    const currentRoute = routes.find(route => window.location.hash.startsWith(`#${route.path}`));
-    if (currentRoute) {
-        currentRoute.component();
-    }
-}); 
+$('clean-button').addEventListener('click', () => {
+    if (!router.currentRoute) return;
+    clearStorageWithPrefix(router.currentRoute.path);
+    router.reload();
+});

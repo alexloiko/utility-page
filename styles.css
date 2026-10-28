@@ -4,17 +4,39 @@
 }
 
 .nav-link {
+    --tool: #6c757d;
     color: #333;
     padding: 0.5rem 1rem;
+    border-left: 3px solid transparent;
+    border-radius: 0 4px 4px 0;
+}
+
+.nav-link .bi {
+    color: var(--tool);
 }
 
 .nav-link:hover {
-    background-color: #f8f8f8;
+    background-color: color-mix(in srgb, var(--tool) 8%, #fff);
+    border-left-color: color-mix(in srgb, var(--tool) 50%, #fff);
 }
 
 .nav-link.active {
-    background-color: #f3f3f3;
+    background-color: color-mix(in srgb, var(--tool) 14%, #fff);
+    border-left-color: var(--tool);
+    font-weight: 600;
 }
+
+/* One accent per tool, chosen to stay distinct from their neighbours in the list. */
+.nav-link[data-tool="time"]   { --tool: #0d6efd; }
+.nav-link[data-tool="base64"] { --tool: #fd7e14; }
+.nav-link[data-tool="calc"]   { --tool: #198754; }
+.nav-link[data-tool="diff"]   { --tool: #d63384; }
+.nav-link[data-tool="hmac"]   { --tool: #b58900; }
+.nav-link[data-tool="json"]   { --tool: #6f42c1; }
+.nav-link[data-tool="jwt"]    { --tool: #dc3545; }
+.nav-link[data-tool="text"]   { --tool: #20c997; }
+.nav-link[data-tool="url"]    { --tool: #0dcaf0; }
+.nav-link[data-tool="uuid"]   { --tool: #6610f2; }
 
 .card {
     border: 1px solid #eee;
@@ -30,4 +52,129 @@
 
 .card-body {
     padding: 1rem;
-} 
+}
+
+/* Label | value + copy button. The label column fits its longest label; the copy button follows the
+   value directly instead of sitting at the far edge of the card. */
+.result-grid {
+    display: grid;
+    grid-template-columns: minmax(7.5rem, max-content) minmax(0, 1fr);
+    gap: 0.3rem 1.25rem;
+    align-items: baseline;
+}
+
+.result-label {
+    color: #6c757d;
+    font-size: 0.875rem;
+    white-space: nowrap;
+}
+
+.result-cell {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.4rem;
+    min-width: 0;
+}
+
+.result-value {
+    color: #111;
+    font-weight: 600;
+    font-size: 0.9rem;
+    line-height: 1.6rem;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    min-width: 0;
+}
+
+.result-actions {
+    flex: none;
+    display: flex;
+    gap: 0.25rem;
+}
+
+.result-note {
+    color: #6c757d;
+    font-size: 0.8rem;
+    line-height: 1.6rem;
+    white-space: nowrap;
+}
+
+.copy-btn {
+    border: 1px solid #dee2e6;
+    background: #fff;
+    color: #6c757d;
+    border-radius: 4px;
+    padding: 0 0.35rem;
+    height: 1.6rem;
+    font-size: 0.8rem;
+    line-height: 1;
+}
+
+.copy-btn:hover,
+.copy-btn:focus-visible {
+    background: #f1f3f5;
+    color: #111;
+    border-color: #adb5bd;
+}
+
+/* Code blocks: copy button floats in the top-right corner of the block. */
+.pre-wrap {
+    position: relative;
+}
+
+.pre-wrap > .copy-btn {
+    position: absolute;
+    top: 0.4rem;
+    right: 0.4rem;
+}
+
+.result-pre {
+    background: #f8f9fa;
+    border: 1px solid #eee;
+    border-radius: 4px;
+    padding: 0.5rem 2.75rem 0.5rem 0.75rem;
+    margin: 0;
+    font-size: 0.85rem;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    min-width: 0;
+}
+
+.diff-add { color: #116329; background-color: #e6ffe6; }
+.diff-del { color: #a40e26; background-color: #ffe6e6; }
+.diff-hunk { color: #6639ba; }
+
+.storage-note {
+    color: #888;
+    font-size: 0.75rem;
+}
+
+/* On narrow screens the sidebar becomes a wrapping row of links instead of a tall column. */
+@media (max-width: 767.98px) {
+    .sidebar {
+        min-height: auto;
+        border-right: 0;
+        border-bottom: 1px solid #eee;
+    }
+    .sidebar .nav {
+        flex-direction: row !important;
+        flex-wrap: wrap;
+    }
+    .sidebar .nav-link {
+        padding: 0.35rem 0.6rem;
+        font-size: 0.9rem;
+        border-left: 0;
+        border-bottom: 3px solid transparent;
+        border-radius: 4px 4px 0 0;
+    }
+    .sidebar .nav-link:hover {
+        border-bottom-color: color-mix(in srgb, var(--tool) 50%, #fff);
+    }
+    .sidebar .nav-link.active {
+        border-bottom-color: var(--tool);
+    }
+    .result-grid {
+        grid-template-columns: minmax(5rem, max-content) minmax(0, 1fr);
+        gap: 0.3rem 0.75rem;
+    }
+}
